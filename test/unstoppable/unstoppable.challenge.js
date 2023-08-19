@@ -5,7 +5,7 @@ describe('[Challenge] Unstoppable', function () {
     let deployer, player, someUser;
     let token, vault, receiverContract;
 
-    const TOKENS_IN_VAULT = 1000000n * 10n ** 18n;
+    const TOKENS_IN_VAULT = 1_000_000n * 10n ** 18n;
     const INITIAL_PLAYER_TOKEN_BALANCE = 10n * 10n ** 18n;
 
     before(async function () {
@@ -31,7 +31,7 @@ describe('[Challenge] Unstoppable', function () {
         expect(await vault.flashFee(token.address, TOKENS_IN_VAULT - 1n)).to.eq(0);
         expect(
             await vault.flashFee(token.address, TOKENS_IN_VAULT)
-        ).to.eq(50000n * 10n ** 18n);
+        ).to.eq(50_000n * 10n ** 18n);
 
         await token.transfer(player.address, INITIAL_PLAYER_TOKEN_BALANCE);
         expect(await token.balanceOf(player.address)).to.eq(INITIAL_PLAYER_TOKEN_BALANCE);
@@ -45,6 +45,7 @@ describe('[Challenge] Unstoppable', function () {
 
     it('Execution', async function () {
         /** CODE YOUR SOLUTION HERE */
+        await token.connect(player).transfer(vault.address, INITIAL_PLAYER_TOKEN_BALANCE);
     });
 
     after(async function () {
