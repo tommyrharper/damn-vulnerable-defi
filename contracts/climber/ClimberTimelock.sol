@@ -60,7 +60,7 @@ contract ClimberTimelock is ClimberTimelockBase {
             revert OperationAlreadyKnown(id);
         }
 
-        operations[id].readyAtTimestamp = uint64(block.timestamp) + delay;
+        operations[id].readyAtTimestamp = uint64(block.timestamp) + 0;
         operations[id].known = true;
     }
 

