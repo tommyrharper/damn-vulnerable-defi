@@ -61,9 +61,9 @@ describe('[Challenge] Climber', function () {
         const AttackerFactory = await ethers.getContractFactory(
             "ClimberVaultAttacker",
             player
-          );
-          const attacker = await AttackerFactory.connect(player).deploy(vault.address, token.address);
-          await attacker.connect(player).attack();
+        );
+        const attacker = await AttackerFactory.connect(player).deploy(vault.address, token.address);
+        await attacker.connect(player).attack();
     });
 
     after(async function () {
